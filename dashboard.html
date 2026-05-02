@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CorpConnect — Dashboard</title>
+<link rel="stylesheet" href="style.css"/>
+<style>
+.proj-row { display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(30,45,74,.5);cursor:pointer; }
+.proj-row:last-child{border-bottom:none;} .proj-row:hover .proj-row-name{color:var(--gold);}
+.proj-row-name{font-weight:600;font-size:.875rem;margin-bottom:2px;}
+.proj-row-meta{font-size:.75rem;color:var(--text2);}
+.bar-bg{flex:1;background:var(--bg3);border-radius:4px;overflow:hidden;height:7px;}
+.bar-fill{height:100%;background:var(--gold);border-radius:4px;transition:width .5s;}
+.notif-preview{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid rgba(30,45,74,.5);}
+.notif-preview:last-child{border-bottom:none;}
+.notif-dot{width:7px;height:7px;border-radius:50%;background:var(--gold);flex-shrink:0;margin-top:5px;}
+.notif-dot.read{background:var(--border);}
+.suggest-card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;}
+.suggest-card:last-child{margin-bottom:0;}
+</style>
+</head>
+<body>
+<div id="toast-container" class="toast-container"></div>
+<div class="app-shell">
+  <div id="sidebar"></div>
+  <div class="main-area">
+    <div class="topbar">
+      <div class="topbar-title">Dashboard</div>
+      <div class="topbar-actions" id="topbar-actions"></div>
+    </div>
+    <div class="page-content" id="content"></div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const s = requireAuth();
+if (s) {
+  renderSidebar('dashboard.html');
+  s.role === 'manager' ? renderManagerDash() : renderEmployeeDash();
+}
+
+function renderEmployeeDash() {
+  const uid   = s.id;
+  const asgns = assignedOf(uid);
+  const prjs  = asgns.map(a => DB.company_projects.find(p => p.id === a.project_id)).filter(Boolean);
+  const active = prjs.filter(p => p.status === 'active');
+  const logs30 = DB.time_logs.filter(l => l.user_id === uid && l.date >= daysAgo(30));
+  const hrs30  = logs30.reduce((s,l) => s + l.hours, 0);
+  const mySkills = skillsOf(uid).map(s => s.toLowerCase());
+  const suggested = DB.company_projects.filter(p =>
+    p.status === 'upcoming' && !asgns.find(a => a.project_id === p.id) &&
+    p.required_skills.toLowerCase().split(',').some(r => mySkills.some(ms => r.trim().includes(ms) || ms.includes(r.trim())))
+  ).slice(0, 4);
+  const notifs = DB.notifications.filter(n => n.user_id === uid).slice().reverse().slice(0, 5);
+  const unc = unreadCount(uid);
+
+  document.getElementById('topbar-actions').innerHTML =
+    `<a href="profile.html" class="btn btn-outline btn-sm">View Profile</a>`;
+
+  document.getElementById('content').innerHTML = `
+    <div class="grid-4 mb-20">
+      <div class="stat-card stat-gold"><div class="stat-label">Assigned Projects</div><div class="stat-value">${asgns.length}</div><div class="stat-sub">All assignments</div></div>
+      <div class="stat-card stat-blue"><div class="stat-label">Active Projects</div><div class="stat-value">${active.length}</div><div class="stat-sub">In progress</div></div>
+      <div class="stat-card stat-green"><div class="stat-label">Hours This Month</div><div class="stat-value">${hrs30}</div><div class="stat-sub">Last 30 days</div></div>
+      <div class="stat-card stat-red"><div class="stat-label">Notifications</div><div class="stat-value">${unc}</div><div class="stat-sub">Unread</div></div>
+    </div>
+
+    <div class="grid-2 mb-20">
+      <div class="card">
+        <div class="card-title">My Active Projects
+          <a href="projects.html" class="btn btn-ghost btn-sm">View all →</a>
+        </div>
+        ${active.length ? active.map(p => {
+          const a = asgns.find(x => x.project_id === p.id);
+          return `<div class="proj-row" onclick="location.href='project-detail.html?id=${p.id}'">
+            <div>
+              <div class="proj-row-name">${p.name}</div>
+              <div class="proj-row-meta">${a?.allocated_hours||0} hrs/week · ${p.start_date} → ${p.end_date}</div>
+            </div>
+            ${badgeHtml(p.status)}
+          </div>`;
+        }).join('') : `<div class="empty"><div class="empty-icon">📁</div><div>No active project assignments yet.</div></div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-title">Recent Time Logs
+          <a href="timelogs.html" class="btn btn-ghost btn-sm">Log time →</a>
+        </div>
+        ${logs30.length ? `<div class="table-wrap"><table>
+          <tr><th>Date</th><th>Project</th><th>Hrs</th></tr>
+          ${logs30.slice(-5).reverse().map(l => {
+            const p = DB.company_projects.find(x => x.id === l.project_id);
+            return `<tr><td class="mono fs-xs">${l.date}</td><td class="fs-sm">${p?.name||'-'}</td><td class="mono" style="color:var(--gold)">${l.hours}h</td></tr>`;
+          }).join('')}
+        </table></div>` : `<div class="empty"><div class="empty-icon">⏱</div><div>No time logs yet.</div></div>`}
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">💡 Suggested Projects (Based on Your Skills)</div>
+        ${suggested.length ? suggested.map(p => `
+          <div class="suggest-card">
+            <div class="flex-center gap-8 mb-4"><span class="fw-700 fs-sm">${p.name}</span>${badgeHtml(p.status)}</div>
+            <div class="fs-xs text2 mb-8">${p.description.slice(0,90)}…</div>
+            <div class="chips">${p.required_skills.split(',').slice(0,4).map(s=>`<span class="chip">${s.trim()}</span>`).join('')}</div>
+          </div>
+        `).join('') : `<div class="empty"><div class="empty-icon">💡</div><div>Add more skills to your profile to see suggestions.</div></div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-title">Recent Notifications
+          <a href="notifications.html" class="btn btn-ghost btn-sm">All →</a>
+        </div>
+        ${notifs.length ? notifs.map(n => `
+          <div class="notif-preview">
+            <div class="notif-dot ${n.read?'read':''}"></div>
+            <div>
+              <div class="fw-700 fs-sm">${n.title}</div>
+              <div class="fs-xs text2">${n.body}</div>
+            </div>
+          </div>
+        `).join('') : `<div class="empty"><div class="empty-icon">🔔</div><div>All caught up!</div></div>`}
+      </div>
+    </div>
+  `;
+}
+
+function renderManagerDash() {
+  const uid = s.id;
+  const myP = DB.company_projects.filter(p => p.manager_id === uid);
+  const stats = {
+    total:     myP.length,
+    active:    myP.filter(p=>p.status==='active').length,
+    upcoming:  myP.filter(p=>p.status==='upcoming').length,
+    completed: myP.filter(p=>p.status==='completed').length,
+    members:   new Set(DB.project_assignments.filter(a=>myP.find(p=>p.id===a.project_id)).map(a=>a.employee_id)).size,
+  };
+  const logs7 = DB.time_logs.filter(l => myP.find(p=>p.id===l.project_id) && l.date >= daysAgo(7));
+  const empHrs = {};
+  logs7.forEach(l => { empHrs[l.user_id] = (empHrs[l.user_id]||0) + l.hours; });
+  const topEmps = Object.entries(empHrs).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maxHrs  = topEmps[0]?.[1] || 1;
+  const notifs  = DB.notifications.filter(n=>n.user_id===uid).slice().reverse().slice(0,5);
+
+  document.getElementById('topbar-actions').innerHTML =
+    `<a href="projects.html?create=1" class="btn btn-gold btn-sm">+ New Project</a>`;
+
+  document.getElementById('content').innerHTML = `
+    <div class="grid-4 mb-20">
+      <div class="stat-card stat-gold"><div class="stat-label">Total Projects</div><div class="stat-value">${stats.total}</div></div>
+      <div class="stat-card stat-blue"><div class="stat-label">Active</div><div class="stat-value">${stats.active}</div></div>
+      <div class="stat-card stat-green"><div class="stat-label">Upcoming</div><div class="stat-value">${stats.upcoming}</div></div>
+      <div class="stat-card"><div class="stat-label">Team Members</div><div class="stat-value" style="color:var(--gold)">${stats.members}</div></div>
+    </div>
+
+    <div class="grid-2 mb-20">
+      <div class="card">
+        <div class="card-title">My Projects <a href="projects.html" class="btn btn-ghost btn-sm">View all →</a></div>
+        ${myP.slice(0,6).map(p => {
+          const tc = DB.project_assignments.filter(a=>a.project_id===p.id).length;
+          return `<div class="proj-row" onclick="location.href='project-detail.html?id=${p.id}'">
+            <div>
+              <div class="proj-row-name">${p.name}</div>
+              <div class="proj-row-meta">Team ${tc}/${p.team_size} · ${p.weekly_hours}h/week</div>
+            </div>
+            ${badgeHtml(p.status)}
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="card">
+        <div class="card-title">Hours Logged This Week</div>
+        ${topEmps.length ? topEmps.map(([uid, hrs]) => {
+          const u = userById(+uid);
+          return `<div style="margin-bottom:12px">
+            <div class="flex-center gap-8 mb-4">
+              <span class="fs-sm fw-700">${u.name}</span>
+              <span class="mono fs-xs text2" style="margin-left:auto">${hrs}h</span>
+            </div>
+            <div class="flex-center gap-8">
+              <div class="bar-bg"><div class="bar-fill" style="width:${Math.round(hrs/maxHrs*100)}%"></div></div>
+            </div>
+          </div>`;
+        }).join('') : `<div class="empty"><div class="empty-icon">📊</div><div>No time logs this week.</div></div>`}
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Quick Actions</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;padding-top:4px">
+          <a href="projects.html?create=1" class="btn btn-outline">📁 Create Project</a>
+          <a href="employees.html" class="btn btn-outline">🔍 Find Employees</a>
+          <a href="timelogs.html" class="btn btn-outline">⏱ Time Reports</a>
+          <a href="messages.html" class="btn btn-outline">💬 Messages</a>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Notifications <a href="notifications.html" class="btn btn-ghost btn-sm">All →</a></div>
+        ${notifs.map(n=>`
+          <div class="notif-preview">
+            <div class="notif-dot ${n.read?'read':''}"></div>
+            <div><div class="fw-700 fs-sm">${n.title}</div><div class="fs-xs text2">${n.body}</div></div>
+          </div>`).join('') || `<div class="empty"><div class="empty-icon">🔔</div><div>All caught up!</div></div>`}
+      </div>
+    </div>
+  `;
+}
+</script>
+</body></html>

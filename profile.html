@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CorpConnect — Profile</title>
+<link rel="stylesheet" href="style.css"/>
+<style>
+.profile-banner{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:28px;display:flex;align-items:flex-start;gap:20px;margin-bottom:20px;}
+.profile-info{flex:1;}
+.profile-name{font-family:'Syne',sans-serif;font-size:1.5rem;font-weight:800;margin-bottom:4px;}
+.profile-meta{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:.85rem;color:var(--text2);}
+.exp-card,.edu-card,.pp-card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;}
+.exp-card:last-child,.edu-card:last-child,.pp-card:last-child{margin-bottom:0;}
+.timeline-dot{width:10px;height:10px;border-radius:50%;background:var(--gold);flex-shrink:0;margin-top:5px;}
+</style>
+</head>
+<body>
+<div id="toast-container" class="toast-container"></div>
+<div class="app-shell">
+  <div id="sidebar"></div>
+  <div class="main-area">
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">My Profile</div>
+      <div class="topbar-actions" id="topbar-actions"></div>
+    </div>
+    <div class="page-content" id="content"></div>
+  </div>
+</div>
+
+<!-- Edit Profile Modal -->
+<div class="modal-backdrop" id="modal-edit">
+  <div class="modal">
+    <div class="modal-hd"><span class="modal-title">Edit Profile</span><button class="modal-close" onclick="closeModal('modal-edit')">✕</button></div>
+    <div class="field"><label>Job Title</label><input id="e-job" placeholder="e.g. Senior Developer"/></div>
+    <div class="field-row">
+      <div class="field"><label>Date of Birth</label><input id="e-dob" type="date"/></div>
+      <div class="field"><label>Phone</label><input id="e-phone" placeholder="+91-9800000000"/></div>
+    </div>
+    <div class="field"><label>Location</label><input id="e-loc" placeholder="City, Country"/></div>
+    <div class="field"><label>Bio</label><textarea id="e-bio" placeholder="Tell managers about yourself..."></textarea></div>
+    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal('modal-edit')">Cancel</button><button class="btn btn-gold" onclick="saveProfile()">Save Changes</button></div>
+  </div>
+</div>
+
+<!-- Edit Skills Modal -->
+<div class="modal-backdrop" id="modal-skills">
+  <div class="modal">
+    <div class="modal-hd"><span class="modal-title">Edit Skills</span><button class="modal-close" onclick="closeModal('modal-skills')">✕</button></div>
+    <div class="field"><label>Skills (comma-separated)</label>
+      <textarea id="e-skills" rows="4" placeholder="React, Node.js, Python, PostgreSQL..."></textarea>
+    </div>
+    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal('modal-skills')">Cancel</button><button class="btn btn-gold" onclick="saveSkills()">Save Skills</button></div>
+  </div>
+</div>
+
+<!-- Add Education Modal -->
+<div class="modal-backdrop" id="modal-edu">
+  <div class="modal">
+    <div class="modal-hd"><span class="modal-title">Add Education</span><button class="modal-close" onclick="closeModal('modal-edu')">✕</button></div>
+    <div class="field-row">
+      <div class="field"><label>Degree/Level</label><input id="edu-level" placeholder="B.Tech, M.S., MBA..."/></div>
+      <div class="field"><label>Field of Study</label><input id="edu-field" placeholder="Computer Science..."/></div>
+    </div>
+    <div class="field"><label>Institution</label><input id="edu-inst" placeholder="University / College name"/></div>
+    <div class="field-row">
+      <div class="field"><label>Start Year</label><input id="edu-sy" placeholder="2018"/></div>
+      <div class="field"><label>End Year</label><input id="edu-ey" placeholder="2022"/></div>
+    </div>
+    <div class="field"><label>Grade / CGPA</label><input id="edu-grade" placeholder="9.1 CGPA"/></div>
+    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal('modal-edu')">Cancel</button><button class="btn btn-gold" onclick="saveEducation()">Add</button></div>
+  </div>
+</div>
+
+<!-- Add Experience Modal -->
+<div class="modal-backdrop" id="modal-exp">
+  <div class="modal">
+    <div class="modal-hd"><span class="modal-title">Add Experience</span><button class="modal-close" onclick="closeModal('modal-exp')">✕</button></div>
+    <div class="field-row">
+      <div class="field"><label>Company</label><input id="exp-co" placeholder="Company name"/></div>
+      <div class="field"><label>Role</label><input id="exp-role" placeholder="Job title"/></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Start Date</label><input id="exp-sd" type="month"/></div>
+      <div class="field"><label>End Date</label><input id="exp-ed" type="month" placeholder="Leave blank if current"/></div>
+    </div>
+    <div class="field"><label><input id="exp-curr" type="checkbox"/> Currently working here</label></div>
+    <div class="field"><label>Description</label><textarea id="exp-desc" placeholder="What did you work on?"></textarea></div>
+    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal('modal-exp')">Cancel</button><button class="btn btn-gold" onclick="saveExperience()">Add</button></div>
+  </div>
+</div>
+
+<!-- Add Personal Project Modal -->
+<div class="modal-backdrop" id="modal-pp">
+  <div class="modal">
+    <div class="modal-hd"><span class="modal-title">Add Personal Project</span><button class="modal-close" onclick="closeModal('modal-pp')">✕</button></div>
+    <div class="field"><label>Project Name</label><input id="pp-name" placeholder="My Awesome Project"/></div>
+    <div class="field"><label>Description</label><textarea id="pp-desc" placeholder="What is it about?"></textarea></div>
+    <div class="field-row">
+      <div class="field"><label>Status</label>
+        <select id="pp-status"><option value="ongoing">Ongoing</option><option value="completed">Completed</option><option value="upcoming">Upcoming</option></select>
+      </div>
+      <div class="field"><label>Tech Stack</label><input id="pp-tech" placeholder="React, Node.js..."/></div>
+    </div>
+    <div class="field"><label>URL / GitHub Link</label><input id="pp-url" placeholder="github.com/user/project"/></div>
+    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal('modal-pp')">Cancel</button><button class="btn btn-gold" onclick="savePP()">Add Project</button></div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const s   = requireAuth();
+const uid = param('uid') ? +param('uid') : s?.id;
+const isMe = uid === s?.id;
+
+if (s) { renderSidebar('profile.html'); render(); }
+
+function render() {
+  const user = userById(uid);
+  const prof = profileOf(uid);
+  const sk   = skillsOf(uid);
+  const edu  = DB.education.filter(e=>e.user_id===uid);
+  const exp  = DB.experience.filter(e=>e.user_id===uid);
+  const pp   = DB.personal_projects.filter(p=>p.user_id===uid);
+  const asgn = assignedOf(uid).map(a=>DB.company_projects.find(p=>p.id===a.project_id)).filter(Boolean);
+
+  document.getElementById('topbar-title').textContent = isMe ? 'My Profile' : `${user.name}'s Profile`;
+  document.getElementById('topbar-actions').innerHTML = isMe
+    ? `<button class="btn btn-outline btn-sm" onclick="openEditProfile()">Edit Profile</button>`
+    : `<button class="btn btn-gold btn-sm" onclick="location.href='messages.html?to=${uid}'">Send Message</button>`;
+
+  document.getElementById('content').innerHTML = `
+    <div class="profile-banner mb-20">
+      ${avatarHtml(user.name, 72)}
+      <div class="profile-info">
+        <div class="profile-name">${user.name}</div>
+        <span class="role-pill ${user.role}">${user.role}</span>
+        ${prof.job_title ? `<div style="font-size:.95rem;font-weight:500;margin-top:6px">${prof.job_title}</div>` : ''}
+        <div class="profile-meta">
+          ${prof.location ? `<span>📍 ${prof.location}</span>` : ''}
+          ${prof.phone    ? `<span>📞 ${prof.phone}</span>` : ''}
+          ${prof.dob      ? `<span>🎂 ${prof.dob}</span>` : ''}
+        </div>
+        ${prof.bio ? `<div style="margin-top:10px;font-size:.875rem;color:var(--text2);max-width:600px">${prof.bio}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="grid-2 mb-20">
+      <div class="card">
+        <div class="card-title">Skills
+          ${isMe ? `<button class="btn btn-ghost btn-sm" onclick="openEditSkills()">Edit</button>` : ''}
+        </div>
+        ${sk.length ? `<div class="chips">${sk.map(s=>`<span class="chip chip-gold">${s}</span>`).join('')}</div>`
+          : `<div class="empty"><div class="empty-icon">🛠</div><div>${isMe?'Add your skills!':'No skills listed.'}</div></div>`}
+      </div>
+      <div class="card">
+        <div class="card-title">Assigned Projects</div>
+        ${asgn.length ? asgn.map(p=>`
+          <div class="proj-row" onclick="location.href='project-detail.html?id=${p.id}'">
+            <span class="fs-sm fw-700">${p.name}</span>${badgeHtml(p.status)}
+          </div>`).join('')
+          : `<div class="empty"><div class="empty-icon">📁</div><div>No project assignments.</div></div>`}
+      </div>
+    </div>
+
+    <div class="grid-2 mb-20">
+      <div class="card">
+        <div class="card-title">Education
+          ${isMe ? `<button class="btn btn-ghost btn-sm" onclick="openModal('modal-edu')">+ Add</button>` : ''}
+        </div>
+        ${edu.length ? edu.map(e=>`
+          <div class="edu-card">
+            <div class="fw-700 fs-sm">${e.level} — ${e.field}</div>
+            <div class="fs-sm text2">${e.institution}</div>
+            <div class="mono fs-xs text3">${e.start_year} – ${e.end_year} · ${e.grade}</div>
+          </div>`).join('')
+          : `<div class="empty"><div class="empty-icon">🎓</div><div>${isMe?'Add your education!':'No education added.'}</div></div>`}
+      </div>
+      <div class="card">
+        <div class="card-title">Work Experience
+          ${isMe ? `<button class="btn btn-ghost btn-sm" onclick="openModal('modal-exp')">+ Add</button>` : ''}
+        </div>
+        ${exp.length ? exp.map(e=>`
+          <div class="exp-card">
+            <div class="fw-700 fs-sm">${e.role}</div>
+            <div class="fs-sm text2">${e.company}</div>
+            <div class="mono fs-xs text3">${e.start_date} – ${e.is_current?'<span style="color:var(--green)">Present</span>':e.end_date}</div>
+            ${e.description ? `<div class="fs-xs text2" style="margin-top:5px">${e.description}</div>` : ''}
+          </div>`).join('')
+          : `<div class="empty"><div class="empty-icon">💼</div><div>${isMe?'Add your work experience!':'No experience added.'}</div></div>`}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Personal Projects
+        ${isMe ? `<button class="btn btn-ghost btn-sm" onclick="openModal('modal-pp')">+ Add</button>` : ''}
+      </div>
+      ${pp.length ? `<div class="grid-2">${pp.map(p=>`
+        <div class="pp-card">
+          <div class="flex-center gap-8 mb-8">
+            <span class="fw-700 fs-sm">${p.name}</span>${badgeHtml(p.status)}
+          </div>
+          <div class="fs-xs text2 mb-8">${p.description}</div>
+          <div class="fs-xs text3 mb-8">${p.tech_stack}</div>
+          ${p.url ? `<a href="https://${p.url.replace('https://','')}" target="_blank" class="fs-xs" style="color:var(--blue)">${p.url}</a>` : ''}
+        </div>`).join('')}</div>`
+        : `<div class="empty"><div class="empty-icon">🧪</div><div>${isMe?'Showcase your personal projects!':'No personal projects.'}</div></div>`}
+    </div>
+  `;
+}
+
+// ── Modals ──
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function openEditProfile() {
+  const prof = profileOf(uid);
+  document.getElementById('e-job').value  = prof.job_title||'';
+  document.getElementById('e-dob').value  = prof.dob||'';
+  document.getElementById('e-phone').value= prof.phone||'';
+  document.getElementById('e-loc').value  = prof.location||'';
+  document.getElementById('e-bio').value  = prof.bio||'';
+  openModal('modal-edit');
+}
+function saveProfile() {
+  Mutate.updateProfile(uid, {
+    job_title: document.getElementById('e-job').value.trim(),
+    dob:       document.getElementById('e-dob').value,
+    phone:     document.getElementById('e-phone').value.trim(),
+    location:  document.getElementById('e-loc').value.trim(),
+    bio:       document.getElementById('e-bio').value.trim(),
+  });
+  closeModal('modal-edit'); toast('Profile updated!'); render();
+}
+function openEditSkills() {
+  document.getElementById('e-skills').value = skillsOf(uid).join(', ');
+  openModal('modal-skills');
+}
+function saveSkills() {
+  const raw = document.getElementById('e-skills').value;
+  Mutate.updateSkills(uid, raw.split(',').map(s=>s.trim()).filter(Boolean));
+  closeModal('modal-skills'); toast('Skills updated!'); render();
+}
+function saveEducation() {
+  Mutate.addEducation(uid, {
+    level:      document.getElementById('edu-level').value.trim(),
+    institution:document.getElementById('edu-inst').value.trim(),
+    field:      document.getElementById('edu-field').value.trim(),
+    start_year: document.getElementById('edu-sy').value,
+    end_year:   document.getElementById('edu-ey').value,
+    grade:      document.getElementById('edu-grade').value.trim(),
+  });
+  closeModal('modal-edu'); toast('Education added!'); render();
+}
+function saveExperience() {
+  const curr = document.getElementById('exp-curr').checked;
+  Mutate.addExperience(uid, {
+    company:    document.getElementById('exp-co').value.trim(),
+    role:       document.getElementById('exp-role').value.trim(),
+    start_date: document.getElementById('exp-sd').value,
+    end_date:   curr ? '' : document.getElementById('exp-ed').value,
+    is_current: curr ? 1 : 0,
+    description:document.getElementById('exp-desc').value.trim(),
+  });
+  closeModal('modal-exp'); toast('Experience added!'); render();
+}
+function savePP() {
+  Mutate.addPersonalProject(uid, {
+    name:       document.getElementById('pp-name').value.trim(),
+    description:document.getElementById('pp-desc').value.trim(),
+    status:     document.getElementById('pp-status').value,
+    tech_stack: document.getElementById('pp-tech').value.trim(),
+    url:        document.getElementById('pp-url').value.trim(),
+  });
+  closeModal('modal-pp'); toast('Project added!'); render();
+}
+</script>
+</body></html>

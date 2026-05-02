@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CorpConnect — Time Logs</title>
+<link rel="stylesheet" href="style.css"/>
+<style>
+.bar-bg{background:var(--bg3);border-radius:4px;overflow:hidden;height:8px;flex:1;}
+.bar-fill{height:100%;background:var(--gold);border-radius:4px;transition:width .5s;}
+.log-entry{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid rgba(30,45,74,.5);}
+.log-entry:last-child{border-bottom:none;}
+</style>
+</head>
+<body>
+<div id="toast-container" class="toast-container"></div>
+<div class="app-shell">
+  <div id="sidebar"></div>
+  <div class="main-area">
+    <div class="topbar">
+      <div class="topbar-title">Time Logs</div>
+      <div class="topbar-actions">
+        <button class="btn btn-gold btn-sm" onclick="openModal('modal-log')">+ Log Time</button>
+      </div>
+    </div>
+    <div class="page-content" id="content"></div>
+  </div>
+</div>
+
+<!-- Log Time Modal -->
+<div class="modal-backdrop" id="modal-log">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-hd"><span class="modal-title">Log Time</span><button class="modal-close" onclick="closeModal('modal-log')">✕</button></div>
+    <div class="field"><label>Project</label>
+      <select id="log-proj"></select>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Date</label><input id="log-date" type="date"/></div>
+      <div class="field"><label>Hours</label><input id="log-hrs" type="number" step="0.5" min="0.5" max="24" placeholder="8"/></div>
+    </div>
+    <div class="field"><label>Notes</label><textarea id="log-notes" rows="3" placeholder="What did you work on?"></textarea></div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="closeModal('modal-log')">Cancel</button>
+      <button class="btn btn-gold" onclick="saveLog()">Save Log</button>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const s   = requireAuth();
+const pid = param('pid') ? +param('pid') : null;
+
+if (s) { renderSidebar('timelogs.html'); render(); }
+
+function render() {
+  const uid = s.id;
+  const logs30 = DB.time_logs.filter(l=>l.user_id===uid && l.date>=daysAgo(30));
+  const total  = logs30.reduce((a,l)=>a+l.hours,0);
+
+  // Project totals
+  const ptotals = {};
+  logs30.forEach(l=>{
+    const p = DB.company_projects.find(x=>x.id===l.project_id);
+    if(!p) return;
+    ptotals[l.project_id] = { name:p.name, hrs:(ptotals[l.project_id]?.hrs||0)+l.hours };
+  });
+  const maxHrs = Math.max(...Object.values(ptotals).map(v=>v.hrs), 1);
+
+  // All logs sorted desc
+  const allLogs = DB.time_logs.filter(l=>l.user_id===uid).slice().sort((a,b)=>b.date.localeCompare(a.date));
+
+  // Manager view: all project logs
+  let managerSection = '';
+  if (s.role === 'manager') {
+    const myProjs = DB.company_projects.filter(p=>p.manager_id===uid);
+    const allProjLogs = DB.time_logs.filter(l=>myProjs.find(p=>p.id===l.project_id));
+    const empHrs = {};
+    allProjLogs.forEach(l=>{ empHrs[l.user_id]=(empHrs[l.user_id]||0)+l.hours; });
+    const maxE = Math.max(...Object.values(empHrs),1);
+    managerSection = `
+      <div class="card mb-20">
+        <div class="card-title">All Team Hours (All Time)</div>
+        ${Object.entries(empHrs).sort((a,b)=>b[1]-a[1]).map(([uid2,hrs])=>{
+          const u=userById(+uid2);
+          return `<div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span class="fs-sm fw-700">${u.name}</span>
+              <span class="mono fs-sm" style="color:var(--gold)">${hrs}h</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="bar-bg"><div class="bar-fill" style="width:${Math.round(hrs/maxE*100)}%"></div></div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
+
+  document.getElementById('content').innerHTML = `
+    <div class="grid-4 mb-20">
+      <div class="stat-card stat-gold"><div class="stat-label">Hours This Month</div><div class="stat-value">${total}</div></div>
+      <div class="stat-card stat-blue"><div class="stat-label">Log Entries (30d)</div><div class="stat-value">${logs30.length}</div></div>
+      <div class="stat-card stat-green"><div class="stat-label">Projects Logged</div><div class="stat-value">${Object.keys(ptotals).length}</div></div>
+      <div class="stat-card"><div class="stat-label">Avg / Day</div><div class="stat-value mono" style="color:var(--gold)">${logs30.length?Math.round(total/logs30.length):0}h</div></div>
+    </div>
+
+    ${managerSection}
+
+    <div class="grid-2 mb-20">
+      <div class="card">
+        <div class="card-title">Hours by Project (30 days)</div>
+        ${Object.values(ptotals).length ? Object.values(ptotals).sort((a,b)=>b.hrs-a.hrs).map(pt=>`
+          <div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span class="fs-sm fw-700">${pt.name}</span>
+              <span class="mono fs-sm" style="color:var(--gold)">${pt.hrs}h</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="bar-bg"><div class="bar-fill" style="width:${Math.round(pt.hrs/maxHrs*100)}%"></div></div>
+            </div>
+          </div>`).join('')
+          : `<div class="empty"><div class="empty-icon">📊</div><div>No logs this month.</div></div>`}
+      </div>
+      <div class="card">
+        <div class="card-title">Quick Log
+          <button class="btn btn-gold btn-sm" onclick="openModal('modal-log')">+ Log Time</button>
+        </div>
+        <div class="fs-sm text2 mb-16">Track hours on your assigned projects quickly.</div>
+        ${assignedOf(uid).map(a=>{
+          const p=DB.company_projects.find(x=>x.id===a.project_id);
+          if(!p||p.status==='completed') return '';
+          const dayLogs = logs30.filter(l=>l.project_id===p.id&&l.date===todayStr());
+          const dayHrs  = dayLogs.reduce((s,l)=>s+l.hours,0);
+          return `<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid rgba(30,45,74,.5)">
+            <div>
+              <div class="fs-sm fw-700">${p.name}</div>
+              <div class="fs-xs text3">Today: ${dayHrs}h logged</div>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="quickLog(${p.id})">Log</button>
+          </div>`;
+        }).join('') || `<div class="text3 fs-sm">No active project assignments.</div>`}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">All Time Logs (${allLogs.length} entries)</div>
+      ${allLogs.length ? `<div class="table-wrap"><table>
+        <tr><th>Date</th><th>Project</th><th>Hours</th><th>Notes</th><th></th></tr>
+        ${allLogs.map(l=>{
+          const p=DB.company_projects.find(x=>x.id===l.project_id);
+          return `<tr>
+            <td class="mono fs-xs">${l.date}</td>
+            <td class="fs-sm">${p?.name||'—'}</td>
+            <td class="mono" style="color:var(--gold)">${l.hours}h</td>
+            <td class="fs-xs text2">${l.notes||'—'}</td>
+            <td><button class="btn btn-danger btn-sm" onclick="delLog(${l.id})">✕</button></td>
+          </tr>`;
+        }).join('')}
+      </table></div>`
+      : `<div class="empty"><div class="empty-icon">⏱</div><div>No time logs yet. Start by clicking "Log Time".</div></div>`}
+    </div>
+  `;
+}
+
+function openModal(id) {
+  // populate projects
+  const asgn = assignedOf(s.id);
+  const projs = asgn.map(a=>DB.company_projects.find(p=>p.id===a.project_id)).filter(p=>p&&p.status!=='completed');
+  if (s.role==='manager') {
+    DB.company_projects.filter(p=>p.manager_id===s.id).forEach(p=>{ if(!projs.find(x=>x.id===p.id)) projs.push(p); });
+  }
+  document.getElementById('log-proj').innerHTML = projs.length
+    ? projs.map(p=>`<option value="${p.id}" ${p.id===pid?'selected':''}>${p.name}</option>`).join('')
+    : '<option value="">No projects available</option>';
+  document.getElementById('log-date').value = todayStr();
+  document.getElementById('log-hrs').value  = '';
+  document.getElementById('log-notes').value = '';
+  document.getElementById('modal-log').classList.add('open');
+}
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function quickLog(projId) {
+  openModal('modal-log');
+  document.getElementById('log-proj').value = projId;
+}
+
+function saveLog() {
+  const projId = +document.getElementById('log-proj').value;
+  const date   = document.getElementById('log-date').value;
+  const hrs    = +document.getElementById('log-hrs').value;
+  const notes  = document.getElementById('log-notes').value.trim();
+  if (!projId || !date || !hrs) return toast('All fields required', 'error');
+  if (hrs <= 0 || hrs > 24) return toast('Hours must be between 0.5 and 24', 'error');
+  // check assignment
+  if (s.role==='employee' && !assignedOf(s.id).find(a=>a.project_id===projId))
+    return toast('You are not assigned to this project', 'error');
+  Mutate.logTime(s.id, projId, date, hrs, notes);
+  closeModal('modal-log');
+  toast('Time logged successfully!');
+  render();
+}
+
+function delLog(id) {
+  if (!confirm('Delete this time log entry?')) return;
+  Mutate.deleteTimeLog(id);
+  toast('Log deleted.');
+  render();
+}
+</script>
+</body></html>

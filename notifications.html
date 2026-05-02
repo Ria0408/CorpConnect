@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CorpConnect — Notifications</title>
+<link rel="stylesheet" href="style.css"/>
+<style>
+.notif-item{display:flex;align-items:flex-start;gap:14px;padding:16px;border-bottom:1px solid rgba(30,45,74,.5);transition:background .15s;cursor:default;}
+.notif-item:hover{background:rgba(255,255,255,.015);}
+.notif-item.unread{background:rgba(201,168,76,.03);border-left:3px solid var(--gold);}
+.notif-icon{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:1rem;flex-shrink:0;}
+.notif-icon.assignment{background:var(--blue-dim);}
+.notif-icon.message{background:var(--green-dim);}
+.notif-icon.welcome{background:var(--gold-dim);}
+.notif-icon.default{background:var(--bg3);}
+.notif-title{font-weight:700;font-size:.875rem;margin-bottom:2px;}
+.notif-body{font-size:.8rem;color:var(--text2);}
+.notif-ts{font-size:.72rem;color:var(--text3);margin-top:4px;font-family:'DM Mono',monospace;}
+.type-tabs{display:flex;gap:6px;margin-bottom:18px;}
+.ttab{padding:6px 14px;border-radius:20px;font-size:.8rem;font-weight:600;cursor:pointer;border:1px solid var(--border);color:var(--text2);background:transparent;transition:all .15s;}
+.ttab.active,.ttab:hover{border-color:var(--gold);color:var(--gold);background:var(--gold-dim);}
+</style>
+</head>
+<body>
+<div id="toast-container" class="toast-container"></div>
+<div class="app-shell">
+  <div id="sidebar"></div>
+  <div class="main-area">
+    <div class="topbar">
+      <div class="topbar-title">Notifications</div>
+      <div class="topbar-actions">
+        <button class="btn btn-outline btn-sm" onclick="markAllRead()">Mark all as read</button>
+      </div>
+    </div>
+    <div class="page-content">
+      <div class="type-tabs">
+        <button class="ttab active" onclick="setType(this,'all')">All</button>
+        <button class="ttab" onclick="setType(this,'assignment')">Assignments</button>
+        <button class="ttab" onclick="setType(this,'message')">Messages</button>
+        <button class="ttab" onclick="setType(this,'welcome')">System</button>
+      </div>
+      <div class="card" style="padding:0">
+        <div id="notif-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const s = requireAuth();
+let typeFilter = 'all';
+const icons = { assignment:'📁', message:'💬', welcome:'🎉' };
+
+if (s) { renderSidebar('notifications.html'); renderNotifs(); }
+
+function setType(el, type) {
+  document.querySelectorAll('.ttab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  typeFilter = type;
+  renderNotifs();
+}
+
+function renderNotifs() {
+  let notifs = DB.notifications.filter(n=>n.user_id===s.id);
+  if (typeFilter !== 'all') notifs = notifs.filter(n=>n.type===typeFilter);
+  notifs = notifs.slice().reverse();
+
+  document.getElementById('notif-list').innerHTML = notifs.length
+    ? notifs.map(n=>`
+        <div class="notif-item ${n.read?'':'unread'}" onclick="handleNotifClick(${n.id},'${n.type}')">
+          <div class="notif-icon ${n.type||'default'}">${icons[n.type]||'🔔'}</div>
+          <div style="flex:1">
+            <div class="notif-title">${n.title}</div>
+            <div class="notif-body">${n.body}</div>
+            <div class="notif-ts">${n.ts||'—'}</div>
+          </div>
+          ${!n.read ? `<div style="width:8px;height:8px;border-radius:50%;background:var(--gold);flex-shrink:0;margin-top:6px"></div>` : ''}
+        </div>`).join('')
+    : `<div class="empty" style="padding:48px"><div class="empty-icon">🔔</div><div>No notifications yet.</div></div>`;
+}
+
+function handleNotifClick(id, type) {
+  // mark read
+  const notifs = getTable('notifications').map(n=>n.id===id?{...n,read:true}:n);
+  setTable('notifications', notifs);
+  renderNotifs();
+  renderSidebar('notifications.html'); // update badge
+  if (type==='message') location.href='messages.html';
+  if (type==='assignment') location.href='projects.html';
+}
+
+function markAllRead() {
+  Mutate.markAllRead(s.id);
+  toast('All notifications marked as read.');
+  renderNotifs();
+  renderSidebar('notifications.html');
+}
+</script>
+</body></html>

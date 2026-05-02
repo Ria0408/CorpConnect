@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CorpConnect — Projects</title>
+<link rel="stylesheet" href="style.css"/>
+<style>
+.proj-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:18px;cursor:pointer;transition:border-color .2s,transform .15s;display:flex;flex-direction:column;gap:10px;}
+.proj-card:hover{border-color:rgba(201,168,76,.4);transform:translateY(-1px);}
+.proj-card-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.95rem;}
+.proj-card-desc{font-size:.8rem;color:var(--text2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1;}
+.proj-card-foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:auto;}
+.filter-tabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap;}
+.ftab{padding:6px 14px;border-radius:20px;font-size:.8rem;font-weight:600;cursor:pointer;border:1px solid var(--border);color:var(--text2);background:transparent;transition:all .15s;}
+.ftab.active,.ftab:hover{border-color:var(--gold);color:var(--gold);background:var(--gold-dim);}
+</style>
+</head>
+<body>
+<div id="toast-container" class="toast-container"></div>
+<div class="app-shell">
+  <div id="sidebar"></div>
+  <div class="main-area">
+    <div class="topbar">
+      <div class="topbar-title">Projects</div>
+      <div class="topbar-actions" id="topbar-actions"></div>
+    </div>
+    <div class="page-content">
+      <div class="search-bar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input id="proj-search" placeholder="Search by name, skill, description…" oninput="renderList()"/>
+      </div>
+      <div class="filter-tabs">
+        <button class="ftab active" data-f="all"       onclick="setFilter(this,'all')">All</button>
+        <button class="ftab"        data-f="active"    onclick="setFilter(this,'active')">Active</button>
+        <button class="ftab"        data-f="upcoming"  onclick="setFilter(this,'upcoming')">Upcoming</button>
+        <button class="ftab"        data-f="completed" onclick="setFilter(this,'completed')">Completed</button>
+      </div>
+      <div id="proj-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Create / Edit Project Modal (manager only) -->
+<div class="modal-backdrop" id="modal-proj">
+  <div class="modal">
+    <div class="modal-hd"><span class="modal-title" id="proj-modal-title">Create Project</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <input type="hidden" id="proj-edit-id"/>
+    <div class="field"><label>Project Name</label><input id="pf-name" placeholder="Project name"/></div>
+    <div class="field"><label>Description</label><textarea id="pf-desc" placeholder="What is this project about?"></textarea></div>
+    <div class="field-row">
+      <div class="field"><label>Status</label>
+        <select id="pf-status"><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option></select>
+      </div>
+      <div class="field"><label>Weekly Hours</label><input id="pf-hrs" type="number" placeholder="40"/></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Team Size</label><input id="pf-size" type="number" placeholder="5"/></div>
+      <div class="field"><label>Team Head</label><input id="pf-head" placeholder="Employee name"/></div>
+    </div>
+    <div class="field"><label>Required Skills (comma-separated)</label><input id="pf-skills" placeholder="React, Node.js, Python…"/></div>
+    <div class="field-row">
+      <div class="field"><label>Start Date</label><input id="pf-sd" type="date"/></div>
+      <div class="field"><label>End Date</label><input id="pf-ed" type="date"/></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-gold" onclick="saveProject()">Save Project</button>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const s = requireAuth();
+let filter = 'all';
+if (s) {
+  renderSidebar('projects.html');
+  if (s.role === 'manager') {
+    document.getElementById('topbar-actions').innerHTML =
+      `<button class="btn btn-gold btn-sm" onclick="openCreate()">+ New Project</button>`;
+  }
+  renderList();
+  if (param('create')) openCreate();
+}
+
+function setFilter(el, f) {
+  document.querySelectorAll('.ftab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  filter = f;
+  renderList();
+}
+
+function renderList() {
+  const q    = document.getElementById('proj-search').value.toLowerCase();
+  const uid  = s.id;
+  let projs  = DB.company_projects;
+  if (filter !== 'all') projs = projs.filter(p => p.status === filter);
+  if (q) projs = projs.filter(p =>
+    p.name.toLowerCase().includes(q) ||
+    p.description.toLowerCase().includes(q) ||
+    p.required_skills.toLowerCase().includes(q)
+  );
+  const myAsgn = new Set(assignedOf(uid).map(a => a.project_id));
+
+  document.getElementById('proj-list').innerHTML = projs.length
+    ? `<div class="grid-2">${projs.map(p => {
+        const tc  = teamOf(p.id).length;
+        const mine = myAsgn.has(p.id);
+        return `<div class="proj-card" onclick="location.href='project-detail.html?id=${p.id}'">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div class="proj-card-name">${p.name}</div>${badgeHtml(p.status)}
+          </div>
+          <div class="proj-card-desc">${p.description}</div>
+          <div class="chips">${p.required_skills.split(',').slice(0,4).map(sk=>`<span class="chip">${sk.trim()}</span>`).join('')}</div>
+          <div class="proj-card-foot">
+            <span class="fs-xs text2">👥 ${tc}/${p.team_size} · ⏱ ${p.weekly_hours}h/week</span>
+            <div style="display:flex;gap:6px;align-items:center">
+              ${mine ? `<span class="badge badge-gold">Assigned</span>` : ''}
+              ${s.role==='manager' ? `<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();openEdit(${p.id})">Edit</button>` : ''}
+            </div>
+          </div>
+        </div>`;
+      }).join('')}</div>`
+    : `<div class="empty"><div class="empty-icon">📁</div><div>No projects found.</div></div>`;
+}
+
+// ── Create / Edit ──
+function openCreate() {
+  document.getElementById('proj-modal-title').textContent = 'Create Project';
+  document.getElementById('proj-edit-id').value = '';
+  ['pf-name','pf-desc','pf-hrs','pf-size','pf-head','pf-skills','pf-sd','pf-ed'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pf-status').value = 'upcoming';
+  document.getElementById('modal-proj').classList.add('open');
+}
+function openEdit(pid) {
+  const p = DB.company_projects.find(x=>x.id===pid);
+  if (!p) return;
+  document.getElementById('proj-modal-title').textContent = 'Edit Project';
+  document.getElementById('proj-edit-id').value  = pid;
+  document.getElementById('pf-name').value   = p.name;
+  document.getElementById('pf-desc').value   = p.description;
+  document.getElementById('pf-status').value = p.status;
+  document.getElementById('pf-hrs').value    = p.weekly_hours;
+  document.getElementById('pf-size').value   = p.team_size;
+  document.getElementById('pf-head').value   = p.team_head;
+  document.getElementById('pf-skills').value = p.required_skills;
+  document.getElementById('pf-sd').value     = p.start_date;
+  document.getElementById('pf-ed').value     = p.end_date;
+  document.getElementById('modal-proj').classList.add('open');
+}
+function closeModal() { document.getElementById('modal-proj').classList.remove('open'); }
+
+function saveProject() {
+  const name = document.getElementById('pf-name').value.trim();
+  if (!name) return toast('Project name is required', 'error');
+  const data = {
+    manager_id:      s.id,
+    name,
+    description:     document.getElementById('pf-desc').value.trim(),
+    status:          document.getElementById('pf-status').value,
+    weekly_hours:    +document.getElementById('pf-hrs').value || 0,
+    team_size:       +document.getElementById('pf-size').value || 0,
+    team_head:       document.getElementById('pf-head').value.trim(),
+    required_skills: document.getElementById('pf-skills').value.trim(),
+    start_date:      document.getElementById('pf-sd').value,
+    end_date:        document.getElementById('pf-ed').value,
+  };
+  const editId = document.getElementById('proj-edit-id').value;
+  if (editId) {
+    Mutate.updateProject(+editId, data);
+    toast('Project updated!');
+  } else {
+    Mutate.createProject(data);
+    toast('Project created!');
+  }
+  closeModal();
+  renderList();
+}
+</script>
+</body></html>

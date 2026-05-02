@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CorpConnect — Employees</title>
+<link rel="stylesheet" href="style.css"/>
+<style>
+.emp-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:18px;transition:border-color .2s;}
+.emp-card:hover{border-color:rgba(201,168,76,.35);}
+.emp-card-top{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+.emp-card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px;}
+.skill-filter{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
+.skill-chip{padding:5px 12px;border-radius:20px;font-size:.75rem;font-weight:600;cursor:pointer;border:1px solid var(--border);color:var(--text2);background:transparent;transition:all .15s;}
+.skill-chip:hover,.skill-chip.active{border-color:var(--gold);color:var(--gold);background:var(--gold-dim);}
+</style>
+</head>
+<body>
+<div id="toast-container" class="toast-container"></div>
+<div class="app-shell">
+  <div id="sidebar"></div>
+  <div class="main-area">
+    <div class="topbar">
+      <div class="topbar-title">Employee Directory</div>
+      <div class="topbar-actions">
+        <span id="count-badge" class="badge badge-gold"></span>
+      </div>
+    </div>
+    <div class="page-content">
+      <div class="search-bar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input id="emp-search" placeholder="Search by name, skill, location, job title…" oninput="renderEmps()"/>
+      </div>
+      <div id="skill-filters" class="skill-filter"></div>
+      <div id="emp-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Employee Profile Modal -->
+<div class="modal-backdrop" id="modal-emp">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-hd"><span class="modal-title" id="emp-modal-name"></span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div id="emp-modal-body"></div>
+    <div class="modal-foot" id="emp-modal-foot"></div>
+  </div>
+</div>
+
+<!-- Quick Assign Modal -->
+<div class="modal-backdrop" id="modal-quick-assign">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-hd"><span class="modal-title" id="qa-title">Quick Assign</span><button class="modal-close" onclick="closeModal2()">✕</button></div>
+    <div class="field"><label>Select Project</label>
+      <select id="qa-project"></select>
+    </div>
+    <div class="field"><label>Allocated Hours / Week</label>
+      <input id="qa-hrs" type="number" value="40" min="1" max="80"/>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="closeModal2()">Cancel</button>
+      <button class="btn btn-gold" onclick="doQuickAssign()">Assign</button>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const s = requireManager();
+let activeSkill = null;
+let pendingEmpId = null;
+
+if (s) {
+  renderSidebar('employees.html');
+  buildSkillFilters();
+  renderEmps();
+}
+
+function buildSkillFilters() {
+  const allSkills = [...new Set(DB.skills.map(sk=>sk.skill))].sort();
+  const popular   = allSkills.slice(0, 16);
+  document.getElementById('skill-filters').innerHTML =
+    `<button class="skill-chip active" onclick="setSkill(this,null)">All Skills</button>` +
+    popular.map(sk=>`<button class="skill-chip" onclick="setSkill(this,'${sk}')">${sk}</button>`).join('');
+}
+
+function setSkill(el, skill) {
+  document.querySelectorAll('.skill-chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  activeSkill = skill;
+  renderEmps();
+}
+
+function renderEmps() {
+  const q  = document.getElementById('emp-search').value.toLowerCase();
+  let emps = DB.users.filter(u=>u.role==='employee');
+  if (activeSkill) emps = emps.filter(u=>skillsOf(u.id).some(sk=>sk.toLowerCase().includes(activeSkill.toLowerCase())));
+  if (q) emps = emps.filter(u=>{
+    const prof = profileOf(u.id);
+    const sks  = skillsOf(u.id).join(' ').toLowerCase();
+    return u.name.toLowerCase().includes(q) || sks.includes(q) ||
+      (prof.location||'').toLowerCase().includes(q) || (prof.job_title||'').toLowerCase().includes(q);
+  });
+
+  document.getElementById('count-badge').textContent = `${emps.length} employees`;
+  document.getElementById('emp-list').innerHTML = emps.length
+    ? `<div class="grid-2">${emps.map(u => {
+        const prof = profileOf(u.id);
+        const sk   = skillsOf(u.id);
+        const ap   = assignedOf(u.id).filter(a=>DB.company_projects.find(p=>p.id===a.project_id&&p.status==='active')).length;
+        return `<div class="emp-card">
+          <div class="emp-card-top">
+            ${avatarHtml(u.name, 44)}
+            <div style="flex:1;min-width:0">
+              <div class="fw-700" style="font-size:.9rem">${u.name}</div>
+              <div class="fs-sm text2">${prof.job_title||'—'}</div>
+              <div class="fs-xs text3">${prof.location||''}</div>
+            </div>
+            <span class="badge ${u.profile_complete?'badge-active':'badge-red'}">${u.profile_complete?'Complete':'Incomplete'}</span>
+          </div>
+          <div class="chips">${sk.slice(0,5).map(s=>`<span class="chip">${s}</span>`).join('')}${sk.length>5?`<span class="chip">+${sk.length-5}</span>`:''}</div>
+          <div class="emp-card-foot">
+            <span class="fs-xs text2">📁 ${ap} active project${ap!==1?'s':''}</span>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" onclick="openEmpModal(${u.id})" title="View Profile">👤 Profile</button>
+              <button class="btn btn-gold btn-sm"  onclick="openQuickAssign(${u.id},'${u.name.replace(/'/g,"\\'")}')">Assign</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}</div>`
+    : `<div class="empty"><div class="empty-icon">🔍</div><div>No employees match your search.</div></div>`;
+}
+
+function openEmpModal(uid) {
+  const u    = userById(uid);
+  const prof = profileOf(uid);
+  const sk   = skillsOf(uid);
+  const edu  = DB.education.filter(e=>e.user_id===uid);
+  const exp  = DB.experience.filter(e=>e.user_id===uid);
+  const asgn = assignedOf(uid).map(a=>DB.company_projects.find(p=>p.id===a.project_id)).filter(Boolean);
+
+  document.getElementById('emp-modal-name').textContent = u.name;
+  document.getElementById('emp-modal-body').innerHTML = `
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+      ${avatarHtml(u.name, 52)}
+      <div>
+        <div class="fw-700">${prof.job_title||'—'}</div>
+        <div class="fs-sm text2">${prof.location||''} ${prof.phone?'· '+prof.phone:''}</div>
+        ${prof.bio?`<div class="fs-xs text2" style="margin-top:4px;max-width:360px">${prof.bio}</div>`:''}
+      </div>
+    </div>
+    <div class="mb-16">
+      <div class="fs-xs text3 fw-700" style="letter-spacing:.07em;text-transform:uppercase;margin-bottom:6px">Skills</div>
+      <div class="chips">${sk.map(s=>`<span class="chip chip-gold">${s}</span>`).join('')||'<span class="text3 fs-sm">None listed</span>'}</div>
+    </div>
+    ${edu.length?`<div class="mb-16">
+      <div class="fs-xs text3 fw-700" style="letter-spacing:.07em;text-transform:uppercase;margin-bottom:6px">Education</div>
+      ${edu.map(e=>`<div class="fs-sm mb-8"><span class="fw-700">${e.level} — ${e.field}</span><br><span class="text2">${e.institution} · ${e.grade}</span></div>`).join('')}
+    </div>`:''}
+    ${exp.length?`<div class="mb-16">
+      <div class="fs-xs text3 fw-700" style="letter-spacing:.07em;text-transform:uppercase;margin-bottom:6px">Experience</div>
+      ${exp.map(e=>`<div class="fs-sm mb-8"><span class="fw-700">${e.role}</span> at ${e.company}<br><span class="text3 mono fs-xs">${e.start_date} – ${e.is_current?'Present':e.end_date}</span></div>`).join('')}
+    </div>`:''}
+    ${asgn.length?`<div>
+      <div class="fs-xs text3 fw-700" style="letter-spacing:.07em;text-transform:uppercase;margin-bottom:6px">Assigned Projects</div>
+      ${asgn.map(p=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(30,45,74,.4)">
+        <span class="fs-sm">${p.name}</span>${badgeHtml(p.status)}</div>`).join('')}
+    </div>`:''}
+  `;
+  document.getElementById('emp-modal-foot').innerHTML = `
+    <button class="btn btn-outline" onclick="closeModal()">Close</button>
+    <button class="btn btn-outline btn-sm" onclick="closeModal();location.href='messages.html?to=${uid}'">💬 Message</button>
+    <button class="btn btn-outline btn-sm" onclick="location.href='profile.html?uid=${uid}'">View Full Profile</button>
+    <button class="btn btn-gold" onclick="closeModal();openQuickAssign(${uid},'${u.name.replace(/'/g,"\\'")}')">Assign to Project</button>
+  `;
+  document.getElementById('modal-emp').classList.add('open');
+}
+
+function openQuickAssign(empId, name) {
+  pendingEmpId = empId;
+  document.getElementById('qa-title').textContent = `Assign ${name} to Project`;
+  const myProjs = DB.company_projects.filter(p=>p.manager_id===s.id && p.status!=='completed');
+  document.getElementById('qa-project').innerHTML =
+    myProjs.map(p=>`<option value="${p.id}">${p.name} (${p.status})</option>`).join('');
+  document.getElementById('modal-quick-assign').classList.add('open');
+}
+
+function doQuickAssign() {
+  const pid = +document.getElementById('qa-project').value;
+  const hrs = +document.getElementById('qa-hrs').value;
+  if (!pid || !hrs) return toast('Select a project and hours', 'error');
+  const result = Mutate.assignEmployee(pid, pendingEmpId, hrs);
+  closeModal2();
+  toast(result==='assigned' ? 'Employee assigned!' : 'Allocation updated!');
+}
+
+function closeModal()  { document.getElementById('modal-emp').classList.remove('open'); }
+function closeModal2() { document.getElementById('modal-quick-assign').classList.remove('open'); }
+</script>
+</body></html>

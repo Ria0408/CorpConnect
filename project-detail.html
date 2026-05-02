@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CorpConnect — Project Detail</title>
+<link rel="stylesheet" href="style.css"/>
+<style>
+.detail-banner{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:26px;margin-bottom:20px;}
+.detail-name{font-family:'Syne',sans-serif;font-size:1.5rem;font-weight:800;margin-bottom:8px;}
+.detail-meta{display:flex;flex-wrap:wrap;gap:16px;font-size:.85rem;color:var(--text2);margin-top:10px;}
+.member-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid rgba(30,45,74,.5);}
+.member-row:last-child{border-bottom:none;}
+.match-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(30,45,74,.5);}
+.match-row:last-child{border-bottom:none;}
+.match-score{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:var(--gold-dim);color:var(--gold);font-weight:700;font-size:.78rem;font-family:'DM Mono',monospace;flex-shrink:0;}
+.log-row{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(30,45,74,.5);}
+.log-row:last-child{border-bottom:none;}
+</style>
+</head>
+<body>
+<div id="toast-container" class="toast-container"></div>
+<div class="app-shell">
+  <div id="sidebar"></div>
+  <div class="main-area">
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">Project Detail</div>
+      <div class="topbar-actions">
+        <a href="projects.html" class="btn btn-outline btn-sm">← Back to Projects</a>
+        <span id="mgr-actions"></span>
+      </div>
+    </div>
+    <div class="page-content" id="content">
+      <div class="empty"><div class="empty-icon">⏳</div><div>Loading…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Assign Employee Modal -->
+<div class="modal-backdrop" id="modal-assign">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-hd"><span class="modal-title">Assign Employee</span><button class="modal-close" onclick="closeModal('modal-assign')">✕</button></div>
+    <div class="search-bar" style="margin-bottom:12px">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="assign-search" placeholder="Search by name or skill…" oninput="renderCandidates()"/>
+    </div>
+    <div id="candidate-list" style="max-height:320px;overflow-y:auto"></div>
+    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal('modal-assign')">Close</button></div>
+  </div>
+</div>
+
+<!-- Confirm Assign Modal -->
+<div class="modal-backdrop" id="modal-confirm-assign">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-hd"><span class="modal-title" id="ca-title">Confirm Assignment</span><button class="modal-close" onclick="closeModal('modal-confirm-assign')">✕</button></div>
+    <p class="fs-sm text2 mb-16" id="ca-msg"></p>
+    <div class="field"><label>Allocated Hours / Week</label><input id="ca-hrs" type="number" value="40" min="1" max="80"/></div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="closeModal('modal-confirm-assign')">Cancel</button>
+      <button class="btn btn-gold" onclick="confirmAssign()">Assign</button>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+const s   = requireAuth();
+const pid = +param('id');
+let pendingEmpId = null;
+
+if (s && pid) { renderSidebar('projects.html'); render(); }
+
+function render() {
+  const p    = DB.company_projects.find(x => x.id === pid);
+  if (!p) { document.getElementById('content').innerHTML = `<div class="empty"><div class="empty-icon">❌</div><div>Project not found.</div></div>`; return; }
+  const team = teamOf(pid).map(a => ({...userById(a.employee_id), allocated_hours:a.allocated_hours}));
+  const logs = DB.time_logs.filter(l => l.project_id === pid);
+  const totalHrs = logs.reduce((s,l)=>s+l.hours, 0);
+  const isMyProj = s.role==='manager' && p.manager_id===s.id;
+  const myAssign = assignedOf(s.id).find(a=>a.project_id===pid);
+
+  document.getElementById('topbar-title').textContent = p.name;
+  document.getElementById('mgr-actions').innerHTML = isMyProj
+    ? `<button class="btn btn-gold btn-sm" onclick="openAssign()">+ Assign Employee</button>`
+    : '';
+
+  // per-employee hours
+  const empHrs = {};
+  logs.forEach(l => { empHrs[l.user_id]=(empHrs[l.user_id]||0)+l.hours; });
+
+  document.getElementById('content').innerHTML = `
+    <div class="detail-banner">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+        <div>
+          <div class="detail-name">${p.name}</div>
+          <div>${badgeHtml(p.status)}</div>
+        </div>
+        ${myAssign ? `<div style="background:var(--gold-dim);border:1px solid rgba(201,168,76,.25);border-radius:8px;padding:12px 18px;text-align:center">
+          <div class="fs-xs text3 mb-4">YOUR ALLOCATION</div>
+          <div class="mono" style="font-size:1.6rem;color:var(--gold)">${myAssign.allocated_hours}h</div>
+          <div class="fs-xs text2">per week</div>
+        </div>` : ''}
+      </div>
+      <p style="margin-top:14px;font-size:.875rem;color:var(--text2);max-width:700px">${p.description}</p>
+      <div class="detail-meta">
+        <span>📅 ${p.start_date} → ${p.end_date}</span>
+        <span>⏱ ${p.weekly_hours} hrs/week</span>
+        <span>👥 ${team.length}/${p.team_size} members</span>
+        <span>👤 Head: ${p.team_head||'—'}</span>
+      </div>
+    </div>
+
+    <div class="grid-3 mb-20">
+      <div class="stat-card stat-gold"><div class="stat-label">Total Hours Logged</div><div class="stat-value">${totalHrs}</div></div>
+      <div class="stat-card stat-blue"><div class="stat-label">Team Members</div><div class="stat-value">${team.length}</div></div>
+      <div class="stat-card stat-green"><div class="stat-label">Log Entries</div><div class="stat-value">${logs.length}</div></div>
+    </div>
+
+    <div class="grid-2 mb-20">
+      <div class="card">
+        <div class="card-title">Required Skills</div>
+        <div class="chips">${p.required_skills.split(',').map(sk=>`<span class="chip chip-gold">${sk.trim()}</span>`).join('')}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Quick Actions</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a href="timelogs.html?pid=${pid}" class="btn btn-outline btn-sm">⏱ Log Time</a>
+          ${isMyProj ? `<button class="btn btn-outline btn-sm" onclick="openAssign()">+ Assign Employee</button>` : ''}
+          ${isMyProj ? `<button class="btn btn-danger btn-sm" onclick="confirmDelete()">🗑 Delete Project</button>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2 mb-20">
+      <div class="card">
+        <div class="card-title">Team Members (${team.length}/${p.team_size})</div>
+        ${team.length ? team.map(m => {
+          const prof = profileOf(m.id);
+          const mh   = empHrs[m.id]||0;
+          return `<div class="member-row">
+            ${avatarHtml(m.name, 36)}
+            <div style="flex:1">
+              <div class="fw-700 fs-sm">${m.name}</div>
+              <div class="fs-xs text2">${prof.job_title||''}</div>
+            </div>
+            <div style="text-align:right">
+              <div class="mono fs-sm" style="color:var(--gold)">${m.allocated_hours}h<span class="text3">/wk</span></div>
+              <div class="fs-xs text3">${mh}h logged</div>
+            </div>
+            <div style="display:flex;gap:5px">
+              <button class="btn btn-ghost btn-sm" onclick="location.href='profile.html?uid=${m.id}'" title="View Profile">👤</button>
+              <button class="btn btn-ghost btn-sm" onclick="location.href='messages.html?to=${m.id}'" title="Message">💬</button>
+              ${isMyProj ? `<button class="btn btn-danger btn-sm" onclick="removeTeamMember(${m.id})" title="Remove">✕</button>` : ''}
+            </div>
+          </div>`;
+        }).join('')
+          : `<div class="empty"><div class="empty-icon">👥</div><div>No team members yet. ${isMyProj?'Click "Assign Employee" to add members.':''}</div></div>`}
+      </div>
+
+      <div class="card">
+        <div class="card-title">Recent Time Logs</div>
+        ${logs.length ? logs.slice().reverse().slice(0,8).map(l => {
+          const u = userById(l.user_id);
+          return `<div class="log-row">
+            ${avatarHtml(u.name, 28)}
+            <div style="flex:1">
+              <div class="fs-sm fw-700">${u.name}</div>
+              <div class="fs-xs text2">${l.notes||'—'}</div>
+            </div>
+            <div style="text-align:right">
+              <div class="mono fs-sm" style="color:var(--blue)">${l.hours}h</div>
+              <div class="mono fs-xs text3">${l.date}</div>
+            </div>
+          </div>`;
+        }).join('')
+          : `<div class="empty"><div class="empty-icon">⏱</div><div>No time logs yet.</div></div>`}
+      </div>
+    </div>
+  `;
+}
+
+// ── Assignment ──
+function openAssign() {
+  document.getElementById('assign-search').value = '';
+  renderCandidates();
+  document.getElementById('modal-assign').classList.add('open');
+}
+
+function renderCandidates() {
+  const q = document.getElementById('assign-search').value.toLowerCase();
+  const p = DB.company_projects.find(x=>x.id===pid);
+  const reqSkills = p.required_skills.toLowerCase().split(',').map(r=>r.trim());
+  const assigned  = new Set(teamOf(pid).map(a=>a.employee_id));
+  let emps = DB.users.filter(u=>u.role==='employee' && !assigned.has(u.id));
+  if (q) emps = emps.filter(u => u.name.toLowerCase().includes(q) || skillsOf(u.id).join(' ').toLowerCase().includes(q));
+
+  document.getElementById('candidate-list').innerHTML = emps.length
+    ? emps.map(u => {
+        const sk = skillsOf(u.id);
+        const matched = sk.filter(s => reqSkills.some(r=>s.toLowerCase().includes(r)||r.includes(s.toLowerCase())));
+        const prof = profileOf(u.id);
+        return `<div class="match-row">
+          <div class="match-score">${matched.length}</div>
+          ${avatarHtml(u.name, 32)}
+          <div style="flex:1">
+            <div class="fw-700 fs-sm">${u.name}</div>
+            <div class="fs-xs text2">${prof.job_title||''}</div>
+            <div class="chips" style="margin-top:4px">${matched.slice(0,3).map(s=>`<span class="chip chip-gold">${s}</span>`).join('')}${sk.filter(s=>!matched.includes(s)).slice(0,2).map(s=>`<span class="chip">${s}</span>`).join('')}</div>
+          </div>
+          <button class="btn btn-gold btn-sm" onclick="pickEmployee(${u.id},'${u.name.replace(/'/g,"\\'")}')">Assign</button>
+        </div>`;
+      }).join('')
+    : `<div class="empty" style="padding:24px"><div class="empty-icon">🔍</div><div>No available employees.</div></div>`;
+}
+
+function pickEmployee(empId, name) {
+  pendingEmpId = empId;
+  document.getElementById('ca-title').textContent = `Assign ${name}`;
+  document.getElementById('ca-msg').textContent   = `Set the weekly allocated hours for ${name} on this project.`;
+  document.getElementById('ca-hrs').value = 40;
+  closeModal('modal-assign');
+  document.getElementById('modal-confirm-assign').classList.add('open');
+}
+
+function confirmAssign() {
+  const hrs = +document.getElementById('ca-hrs').value;
+  if (!hrs) return toast('Enter valid hours', 'error');
+  const result = Mutate.assignEmployee(pid, pendingEmpId, hrs);
+  closeModal('modal-confirm-assign');
+  toast(result==='assigned' ? 'Employee assigned!' : 'Allocation updated!');
+  render();
+}
+
+function removeTeamMember(empId) {
+  if (!confirm('Remove this member from the project?')) return;
+  Mutate.removeAssignment(pid, empId);
+  toast('Member removed.');
+  render();
+}
+
+function confirmDelete() {
+  if (!confirm('Delete this project? This cannot be undone.')) return;
+  Mutate.deleteProject(pid);
+  toast('Project deleted.');
+  setTimeout(() => location.href='projects.html', 800);
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+</script>
+</body></html>
